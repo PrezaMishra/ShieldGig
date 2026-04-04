@@ -196,22 +196,24 @@ ShieldGig does not rely on a single signal like GPS. It builds trust using patte
 ---
 
 ## Tech Stack
-Here is the complete tech stack for the ShieldGig platform based on the codebase analysis:
+### Frontend (User Interface)
+- Framework: React (v19) powered by Vite  
+- Language: TypeScript  
+- Styling: Tailwind CSS (with PostCSS and Autoprefixer)  
+- Routing: React Router v7  
+- HTTP Client: Axios  
+- Icons: Lucide React  
 
-Frontend (User Interface)
-Framework: React (v19) powered by Vite
-Language: TypeScript
-Styling: Tailwind CSS (with PostCSS & Autoprefixer)
-Routing: React Router v7
-HTTP Client: Axios
-Icons: Lucide React
-Backend (API Service)
-Framework: FastAPI (Python)
-ORM (Object-Relational Mapping): SQLAlchemy
-Database: SQLite (shieldgig.db)
-Data Validation & Schemas: Pydantic (handled natively via FastAPI/schemas)
-Project Structure
-Monorepo-style Setup: Contains separated /frontend and /backend directories for organized independent development while running under a single workspace.
+### Backend (API Service)
+- Framework: FastAPI (Python)  
+- ORM (Object-Relational Mapping): SQLAlchemy  
+- Database: SQLite (shieldgig.db)  
+- Data Validation and Schemas: Pydantic (handled via FastAPI)  
+
+### Project Structure
+- Monorepo-style setup  
+- Contains separate `/frontend` and `/backend` directories  
+- Enables organized and independent development within a single workspace  
 ## AI Model Design
 
 ### Model 1: Income Prediction
