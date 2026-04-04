@@ -27,3 +27,15 @@ export const claimAPI = {
 export const adminAPI = {
   triggerEvent: (data: any) => api.post('/admin/trigger-weather-event', data),
 };
+
+export const riskAPI = {
+  getRiskAssessment: (location: string) => api.get(`/risk-assessment/${encodeURIComponent(location)}`),
+};
+
+export const trustAPI = {
+  getTrustScore: (workerId: number) => api.get(`/trust-score/${workerId}`),
+};
+
+export const fraudAPI = {
+  getSummary: () => api.get('/fraud-detection/summary'),
+};

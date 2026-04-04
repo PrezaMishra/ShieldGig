@@ -13,6 +13,7 @@ class Worker(Base):
     platform = Column(String) # e.g., 'zepto', 'blinkit'
     location = Column(String) # e.g., 'Koramangala Dark Store 1'
     daily_income = Column(Float, default=900.0)  # Worker's avg daily earnings in INR
+    trust_score = Column(Float, default=85.0)  # Trust score 0-100 for fraud detection
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     policies = relationship("Policy", back_populates="worker")

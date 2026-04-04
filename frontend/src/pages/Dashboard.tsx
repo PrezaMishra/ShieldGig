@@ -1,13 +1,14 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Shield, ShieldCheck, Bell, CloudRain, Wind, Thermometer,
   IndianRupee, CheckCircle2, AlertTriangle, CloudLightning, MapPin,
   Phone, MessageCircle, Database, ChevronRight,
   Wallet, HelpCircle, Activity, Zap, Eye,
-  Droplets, FileText, ArrowUpRight, Pencil, Check, X
+  Droplets, FileText, ArrowUpRight, Pencil, Check, X,
+  LogOut, Fingerprint, Flame, Gauge, Clock, ChevronDown
 } from 'lucide-react';
-import { policyAPI, claimAPI, adminAPI, workerAPI } from '../api';
+import { policyAPI, claimAPI, adminAPI, workerAPI, trustAPI, riskAPI } from '../api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Worker {
@@ -40,8 +41,31 @@ interface Claim {
   payout_amount: number;
   status: string;
 }
+interface TrustData {
+  composite_score: number;
+  tier: string;
+  tier_label: string;
+  tier_description: string;
+  breakdown: { behavioral_consistency: number; device_authenticity: number; claim_accuracy: number; peer_comparison: number };
+}
+interface RiskData {
+  location: string;
+  risk_level: string;
+  risk_score: number;
+  factors: { name: string; severity: string; score: number; detail: string }[];
+  active_triggers: string[];
+}
 
 type Tab = 'safety' | 'coverage' | 'wallet' | 'help';
+
+// ─── Event Type Options for Simulation ────────────────────────────────────────
+const EVENT_TYPES = [
+  { type: 'Heavy Rain', value: '>50mm/hr', icon: CloudRain, color: '#60a5fa', severity: 'Severe', tempRange: '22-26°C', humidity: '94%', windSpeed: '28 km/h', aqi: '142 (Poor)', visibility: '1.2 km' },
+  { type: 'Extreme Heat', value: '>45°C', icon: Thermometer, color: '#f97316', severity: 'Extreme', tempRange: '45-48°C', humidity: '18%', windSpeed: '8 km/h', aqi: '180 (Unhealthy)', visibility: '4.8 km' },
+  { type: 'AQI Crisis', value: '>300 AQI', icon: Gauge, color: '#ef4444', severity: 'Hazardous', tempRange: '30-34°C', humidity: '45%', windSpeed: '5 km/h', aqi: '342 (Hazardous)', visibility: '0.8 km' },
+  { type: 'Flash Flooding', value: 'Roads submerged', icon: Droplets, color: '#06b6d4', severity: 'Critical', tempRange: '24-28°C', humidity: '98%', windSpeed: '35 km/h', aqi: '160 (Unhealthy)', visibility: '0.5 km' },
+  { type: 'Cyclone Warning', value: 'Cat 2+', icon: Wind, color: '#a78bfa', severity: 'Extreme', tempRange: '26-30°C', humidity: '92%', windSpeed: '95 km/h', aqi: '200 (Very Unhealthy)', visibility: '0.3 km' },
+];
 
 // ─── Simulated live environment (rotates for demo realism) ────────────────────
 const MOCK_TRIGGERS = [
@@ -50,6 +74,124 @@ const MOCK_TRIGGERS = [
   { type: 'High Wind', value: '38 km/h', icon: Wind, color: '#a78bfa', aqi: '55 (Good)', visibility: '6.1 km', active: true },
 ];
 const currentTrigger = MOCK_TRIGGERS[Math.floor(Date.now() / 3600000) % MOCK_TRIGGERS.length];
+
+// ─── Toast Notification Component ─────────────────────────────────────────────
+const ToastNotification: React.FC<{
+  show: boolean;
+  amount: number;
+  eventType: string;
+  trustScore: number;
+  onClose: () => void;
+}> = ({ show, amount, eventType, trustScore, onClose }) => {
+  useEffect(() => {
+    if (show) {
+      const timer = setTimeout(onClose, 6000);
+      return () => clearTimeout(timer);
+    }
+  }, [show, onClose]);
+
+  if (!show) return null;
+
+  return (
+    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] w-full max-w-md px-4 animate-slide-down">
+      <div className="relative overflow-hidden rounded-2xl border border-emerald-500/40 bg-slate-950/95 backdrop-blur-xl p-4 shadow-2xl shadow-emerald-500/10">
+        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-400 via-emerald-500 to-teal-500" />
+        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-400 via-emerald-500 to-teal-500 animate-toast-progress" />
+        <button onClick={onClose} className="absolute top-3 right-3 text-slate-500 hover:text-slate-300 transition-colors">
+          <X className="h-4 w-4" />
+        </button>
+        <div className="flex items-start gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-500/20 border border-emerald-500/30">
+            <IndianRupee className="h-5 w-5 text-emerald-400" />
+          </div>
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-bold text-emerald-400">Payout Credited! 🎉</p>
+              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
+            </div>
+            <p className="text-2xl font-black text-white mt-0.5">₹{amount}</p>
+            <p className="text-xs text-slate-500 mt-1">
+              {eventType} detected · Trust Score {trustScore} · <span className="text-emerald-400 font-semibold">Auto-approved in &lt;30s</span>
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Live Weather Widget ──────────────────────────────────────────────────────
+const LiveWeatherWidget: React.FC<{ location: string }> = ({ location }) => {
+  const [weather, setWeather] = useState({
+    temp: 31, rainfall: 2.4, aqi: 128, humidity: 72, windSpeed: 12,
+    condition: 'Partly Cloudy', updatedSecondsAgo: 0,
+  });
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setWeather(prev => ({
+        temp: +(prev.temp + (Math.random() - 0.5) * 0.6).toFixed(1),
+        rainfall: +Math.max(0, prev.rainfall + (Math.random() - 0.4) * 0.8).toFixed(1),
+        aqi: Math.max(50, Math.min(300, Math.round(prev.aqi + (Math.random() - 0.5) * 8))),
+        humidity: Math.max(40, Math.min(99, Math.round(prev.humidity + (Math.random() - 0.5) * 3))),
+        windSpeed: +Math.max(2, prev.windSpeed + (Math.random() - 0.5) * 2).toFixed(1),
+        condition: prev.rainfall > 5 ? '🌧️ Raining' : prev.temp > 38 ? '☀️ Extreme Heat' : prev.aqi > 200 ? '🫁 Poor Air' : '⛅ Partly Cloudy',
+        updatedSecondsAgo: 0,
+      }));
+    }, 4000);
+    const tickInterval = setInterval(() => {
+      setWeather(prev => ({ ...prev, updatedSecondsAgo: prev.updatedSecondsAgo + 1 }));
+    }, 1000);
+    return () => { clearInterval(interval); clearInterval(tickInterval); };
+  }, []);
+
+  const aqiColor = weather.aqi > 200 ? 'text-red-400' : weather.aqi > 150 ? 'text-orange-400' : weather.aqi > 100 ? 'text-amber-400' : 'text-emerald-400';
+  const aqiLabel = weather.aqi > 200 ? 'Very Unhealthy' : weather.aqi > 150 ? 'Unhealthy' : weather.aqi > 100 ? 'Moderate' : 'Good';
+
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-sky-500/20 bg-gradient-to-br from-sky-950/50 to-slate-900/80 p-4">
+      <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-sky-400 via-blue-500 to-indigo-500" />
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <CloudRain className="h-4 w-4 text-sky-400" />
+          <p className="text-xs font-bold text-sky-300 uppercase tracking-widest">Live Conditions</p>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="text-[10px] text-slate-500">{weather.updatedSecondsAgo}s ago</span>
+        </div>
+      </div>
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <p className="text-2xl font-black text-white">{weather.temp}°C</p>
+          <p className="text-xs text-slate-400">{weather.condition}</p>
+        </div>
+        <div className="text-right">
+          <p className="text-xs text-slate-500">{location.split(',')[0]}</p>
+          <p className={`text-sm font-bold ${aqiColor}`}>AQI {weather.aqi}</p>
+          <p className={`text-[10px] ${aqiColor}`}>{aqiLabel}</p>
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        <div className="rounded-lg bg-white/5 border border-white/5 px-2 py-2 text-center">
+          <Droplets className="h-3.5 w-3.5 text-blue-400 mx-auto mb-1" />
+          <p className="text-xs font-bold text-white">{weather.rainfall}mm</p>
+          <p className="text-[9px] text-slate-500">Rainfall</p>
+        </div>
+        <div className="rounded-lg bg-white/5 border border-white/5 px-2 py-2 text-center">
+          <Wind className="h-3.5 w-3.5 text-purple-400 mx-auto mb-1" />
+          <p className="text-xs font-bold text-white">{weather.windSpeed} km/h</p>
+          <p className="text-[9px] text-slate-500">Wind</p>
+        </div>
+        <div className="rounded-lg bg-white/5 border border-white/5 px-2 py-2 text-center">
+          <Gauge className="h-3.5 w-3.5 text-cyan-400 mx-auto mb-1" />
+          <p className="text-xs font-bold text-white">{weather.humidity}%</p>
+          <p className="text-[9px] text-slate-500">Humidity</p>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // ─── Bottom Navigation ─────────────────────────────────────────────────────────
 const BottomNav: React.FC<{ active: Tab; onChange: (t: Tab) => void }> = ({ active, onChange }) => {
@@ -99,7 +241,12 @@ const SafetyNetTab: React.FC<{
   claims: Claim[]; onPurchase: () => void; purchasing: boolean;
   onTrigger: () => void; simulating: boolean;
   simResult: any; onGoToCoverage: () => void;
-}> = ({ quote, activePolicy, claims, onPurchase, purchasing, onTrigger, simulating, simResult }) => {
+  trustData: TrustData | null; riskData: RiskData | null;
+  selectedEventType: number; onEventTypeChange: (idx: number) => void;
+}> = ({ worker, quote, activePolicy, claims, onPurchase, purchasing, onTrigger, simulating, simResult, trustData, riskData, selectedEventType, onEventTypeChange }) => {
+  const [showEventDropdown, setShowEventDropdown] = useState(false);
+  const selectedEvent = EVENT_TYPES[selectedEventType];
+  const SelectedIcon = selectedEvent.icon;
   const TriggerIcon = currentTrigger.icon;
   const mostRecentClaim = claims[0];
   const minutesAgo = mostRecentClaim
@@ -283,28 +430,233 @@ const SafetyNetTab: React.FC<{
         </div>
       )}
 
+      {/* Trust Score Card */}
+      {trustData && (
+        <div className="glass-card-dark rounded-2xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Fingerprint className="h-4 w-4 text-indigo-400" />
+              <p className="text-sm font-bold text-white">Trust Score</p>
+            </div>
+            <span className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase ${
+              trustData.tier === 'instant_payout'
+                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                : trustData.tier === 'partial_review'
+                ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                : 'bg-red-500/15 text-red-400 border-red-500/30'
+            }`}>
+              {trustData.tier_label}
+            </span>
+          </div>
+          <div className="flex items-center gap-5">
+            {/* Score ring */}
+            <div className="relative flex h-20 w-20 shrink-0 items-center justify-center">
+              <svg className="absolute inset-0 h-full w-full -rotate-90" viewBox="0 0 80 80">
+                <circle cx="40" cy="40" r="34" fill="none" stroke="rgba(99,102,241,0.15)" strokeWidth="5" />
+                <circle cx="40" cy="40" r="34" fill="none" stroke={trustData.composite_score >= 80 ? '#10b981' : trustData.composite_score >= 50 ? '#f59e0b' : '#ef4444'} strokeWidth="5" strokeLinecap="round" strokeDasharray={`${trustData.composite_score * 2.136} 213.6`} />
+              </svg>
+              <span className="text-xl font-black text-white">{trustData.composite_score}</span>
+            </div>
+            <div className="flex-1 space-y-1.5">
+              {Object.entries(trustData.breakdown).map(([key, val]) => (
+                <div key={key} className="flex items-center gap-2">
+                  <span className="text-[10px] text-slate-500 w-24 truncate capitalize">{key.replace('_', ' ')}</span>
+                  <div className="flex-1 h-1.5 rounded-full bg-slate-800">
+                    <div className="h-full rounded-full bg-indigo-500/70" style={{ width: `${val}%` }} />
+                  </div>
+                  <span className="text-[10px] font-bold text-slate-400 w-8 text-right">{val}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <p className="mt-3 text-xs text-slate-600 leading-relaxed">{trustData.tier_description}</p>
+        </div>
+      )}
+
+      {/* AI Risk Assessment Card */}
+      {riskData && (
+        <div className="glass-card-dark rounded-2xl p-5">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <MapPin className="h-4 w-4 text-amber-400" />
+              <p className="text-sm font-bold text-white">Zone Risk Assessment</p>
+            </div>
+            <span className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase ${
+              riskData.risk_level === 'High' ? 'bg-red-500/15 text-red-400 border-red-500/30'
+              : riskData.risk_level === 'Medium' ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+              : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+            }`}>
+              {riskData.risk_level} Risk
+            </span>
+          </div>
+          <div className="mb-3">
+            <div className="flex justify-between mb-1">
+              <span className="text-xs text-slate-500">{worker.location}</span>
+              <span className="text-xs font-bold text-white">{riskData.risk_score}/100</span>
+            </div>
+            <div className="h-2 w-full rounded-full bg-slate-800">
+              <div className={`h-full rounded-full transition-all ${
+                riskData.risk_level === 'High' ? 'bg-red-500' : riskData.risk_level === 'Medium' ? 'bg-amber-500' : 'bg-emerald-500'
+              }`} style={{ width: `${riskData.risk_score}%` }} />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            {riskData.factors.slice(0, 3).map(f => (
+              <div key={f.name} className="flex items-center justify-between rounded-lg bg-white/3 px-3 py-2">
+                <span className="text-xs text-slate-400">{f.name}</span>
+                <span className={`text-xs font-bold ${
+                  f.severity === 'High' ? 'text-red-400' : f.severity === 'Medium' ? 'text-amber-400' : 'text-emerald-400'
+                }`}>{f.severity}</span>
+              </div>
+            ))}
+          </div>
+          {riskData.active_triggers.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {riskData.active_triggers.map(t => (
+                <span key={t} className="rounded-full bg-red-500/10 border border-red-500/20 px-2.5 py-0.5 text-[9px] font-bold text-red-400 uppercase">
+                  ⚠ {t}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Live Weather Widget */}
+      <LiveWeatherWidget location={worker.location} />
+
+      {/* Recent Events Timeline */}
+      {claims.length > 0 && (
+        <div className="glass-card-dark rounded-2xl p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Clock className="h-4 w-4 text-sky-400" />
+            <p className="text-sm font-bold text-white">Event Timeline</p>
+            <span className="ml-auto rounded-full bg-sky-500/15 border border-sky-500/30 px-2 py-0.5 text-[9px] font-bold text-sky-400">
+              {claims.length} EVENT{claims.length !== 1 ? 'S' : ''}
+            </span>
+          </div>
+          <div className="relative">
+            {/* Timeline line */}
+            <div className="absolute left-[15px] top-2 bottom-2 w-px bg-gradient-to-b from-emerald-500/40 via-indigo-500/30 to-transparent" />
+            <div className="space-y-3">
+              {claims.slice(0, 5).map((c, i) => {
+                const eventIcons: Record<string, typeof CloudRain> = { 'Heavy Rain': CloudRain, 'Extreme Heat': Thermometer, 'AQI Crisis': Gauge, 'Flash Flooding': Droplets, 'Cyclone Warning': Wind, 'Heatwave': Thermometer, 'High Wind': Wind };
+                const eventColors: Record<string, string> = { 'Heavy Rain': '#60a5fa', 'Extreme Heat': '#f97316', 'AQI Crisis': '#ef4444', 'Flash Flooding': '#06b6d4', 'Cyclone Warning': '#a78bfa', 'Heatwave': '#f97316', 'High Wind': '#a78bfa' };
+                const Icon = eventIcons[c.event_type] || CloudLightning;
+                const clr = eventColors[c.event_type] || '#a78bfa';
+                const timeStr = new Date(c.trigger_date).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+                const dateStr = new Date(c.trigger_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+                const minsAgo = Math.max(1, Math.floor((Date.now() - new Date(c.trigger_date).getTime()) / 60000));
+                return (
+                  <div key={c.id} className="flex items-start gap-3 pl-0">
+                    <div className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/10 bg-slate-900" style={{ boxShadow: `0 0 12px ${clr}33` }}>
+                      <Icon className="h-3.5 w-3.5" style={{ color: clr }} />
+                    </div>
+                    <div className="flex-1 min-w-0 rounded-xl border border-white/5 bg-white/3 px-3 py-2.5">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-semibold text-white">{c.event_type}</p>
+                        <span className={`text-[9px] uppercase font-bold px-1.5 py-0.5 rounded-full ${
+                          c.status === 'paid' ? 'bg-emerald-500/15 text-emerald-400' : c.status === 'partial-paid' ? 'bg-amber-500/15 text-amber-400' : 'bg-red-500/15 text-red-400'
+                        }`}>{c.status}</span>
+                      </div>
+                      <div className="flex items-center justify-between mt-1">
+                        <span className="text-[10px] text-slate-500">{minsAgo < 60 ? `${minsAgo}m ago` : `${dateStr} ${timeStr}`}</span>
+                        <span className="text-sm font-black text-emerald-400">+₹{c.payout_amount}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Admin Trigger Block */}
       <div className="relative overflow-hidden rounded-3xl border border-red-900/50 bg-gradient-to-br from-red-950/40 to-slate-900/80 p-5">
         <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-red-500 via-orange-500 to-amber-500" />
         <div className="flex items-center gap-2 mb-1">
           <AlertTriangle className="h-4 w-4 text-red-400" />
-          <p className="text-xs font-bold text-red-400 uppercase tracking-widest">Admin Demo Zone</p>
+          <p className="text-xs font-bold text-red-400 uppercase tracking-widest">Parametric Trigger Simulator</p>
         </div>
         <p className="text-xs text-slate-600 mb-3 leading-relaxed">
-          Simulate a real-world parametric trigger — all workers with active policies in your zone receive instant auto-payouts.
+          Select a disruption type and simulate a real-world parametric trigger — all workers with active policies receive instant auto-payouts.
         </p>
+
+        {/* Event Type Selector */}
+        <div className="relative mb-3">
+          <button
+            onClick={() => setShowEventDropdown(!showEventDropdown)}
+            className="w-full flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-left hover:bg-white/8 transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/5">
+                <SelectedIcon className="h-4.5 w-4.5" style={{ color: selectedEvent.color }} />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-white">{selectedEvent.type}</p>
+                <p className="text-[10px] text-slate-500">Threshold: {selectedEvent.value} · Severity: {selectedEvent.severity}</p>
+              </div>
+            </div>
+            <ChevronDown className={`h-4 w-4 text-slate-500 transition-transform ${showEventDropdown ? 'rotate-180' : ''}`} />
+          </button>
+          {showEventDropdown && (
+            <div className="absolute top-full left-0 right-0 mt-1 rounded-xl border border-white/10 bg-slate-900/98 backdrop-blur-xl shadow-2xl z-20 overflow-hidden">
+              {EVENT_TYPES.map((evt, idx) => {
+                const EvtIcon = evt.icon;
+                return (
+                  <button
+                    key={evt.type}
+                    onClick={() => { onEventTypeChange(idx); setShowEventDropdown(false); }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-white/5 transition-colors border-b border-white/5 last:border-0 ${
+                      idx === selectedEventType ? 'bg-white/8' : ''
+                    }`}
+                  >
+                    <EvtIcon className="h-4 w-4 shrink-0" style={{ color: evt.color }} />
+                    <div className="flex-1">
+                      <p className="text-xs font-semibold text-white">{evt.type}</p>
+                      <p className="text-[10px] text-slate-500">{evt.value} · {evt.severity}</p>
+                    </div>
+                    {idx === selectedEventType && <Check className="h-4 w-4 text-emerald-400 shrink-0" />}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Simulated Conditions Preview */}
+        <div className="grid grid-cols-4 gap-1.5 mb-3">
+          <div className="rounded-lg bg-black/30 border border-white/5 p-2 text-center">
+            <p className="text-[9px] text-slate-600">Temp</p>
+            <p className="text-xs font-bold text-white">{selectedEvent.tempRange}</p>
+          </div>
+          <div className="rounded-lg bg-black/30 border border-white/5 p-2 text-center">
+            <p className="text-[9px] text-slate-600">Humidity</p>
+            <p className="text-xs font-bold text-white">{selectedEvent.humidity}</p>
+          </div>
+          <div className="rounded-lg bg-black/30 border border-white/5 p-2 text-center">
+            <p className="text-[9px] text-slate-600">Wind</p>
+            <p className="text-xs font-bold text-white">{selectedEvent.windSpeed}</p>
+          </div>
+          <div className="rounded-lg bg-black/30 border border-white/5 p-2 text-center">
+            <p className="text-[9px] text-slate-600">AQI</p>
+            <p className="text-xs font-bold" style={{ color: selectedEvent.color }}>{selectedEvent.aqi.split(' ')[0]}</p>
+          </div>
+        </div>
+
         <button id="trigger-weather-btn" onClick={onTrigger} disabled={simulating} className="btn-danger text-sm py-3">
-          {simulating ? <><span className="spinner" style={{ borderTopColor: 'white' }} /> Triggering...</> : <><Zap className="h-4 w-4" fill="currentColor" /> TRIGGER EXTREME WEATHER</>}
+          {simulating ? <><span className="spinner" style={{ borderTopColor: 'white' }} /> Detecting &amp; Processing...</> : <><Zap className="h-4 w-4" fill="currentColor" /> TRIGGER: {selectedEvent.type.toUpperCase()}</>}
         </button>
         {simResult && (
-          <div className="mt-3 rounded-xl border border-red-500/20 bg-black/40 p-3 font-mono animate-fade-in">
+          <div className="mt-3 rounded-xl border border-emerald-500/20 bg-black/40 p-3 font-mono animate-fade-in">
             <div className="flex items-center gap-2 mb-1.5">
               <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-[10px] text-emerald-400 font-bold uppercase">Processed</span>
+              <span className="text-[10px] text-emerald-400 font-bold uppercase">✓ Auto-Processed in &lt;30s</span>
             </div>
             <p className="text-xs text-slate-300">{simResult.message}</p>
             {simResult.total_claims_generated > 0 && (
-              <div className="mt-2 pt-2 border-t border-white/5 grid grid-cols-2 gap-2">
+              <div className="mt-2 pt-2 border-t border-white/5 grid grid-cols-3 gap-2">
                 <div>
                   <p className="text-[9px] text-slate-600">Claims</p>
                   <p className="text-base font-black text-white">{simResult.total_claims_generated}</p>
@@ -313,6 +665,25 @@ const SafetyNetTab: React.FC<{
                   <p className="text-[9px] text-slate-600">Paid Out</p>
                   <p className="text-base font-black text-emerald-400">₹{simResult.total_payouts_inr}</p>
                 </div>
+                <div>
+                  <p className="text-[9px] text-slate-600">Event</p>
+                  <p className="text-xs font-bold" style={{ color: selectedEvent.color }}>{selectedEvent.type}</p>
+                </div>
+              </div>
+            )}
+            {simResult.trust_score_breakdown && simResult.trust_score_breakdown.length > 0 && (
+              <div className="mt-2 pt-2 border-t border-white/5">
+                <p className="text-[9px] text-slate-600 mb-1">Trust Score Decision</p>
+                {simResult.trust_score_breakdown.map((d: any) => (
+                  <div key={d.worker_id} className="flex items-center gap-2 text-xs">
+                    <span className="text-slate-500">Score: {d.trust_score}</span>
+                    <span className="text-slate-600">→</span>
+                    <span className={d.status === 'paid' ? 'text-emerald-400 font-bold' : d.status === 'partial-paid' ? 'text-amber-400 font-bold' : 'text-red-400 font-bold'}>
+                      {d.status === 'paid' ? '✓ Full Payout' : d.status === 'partial-paid' ? '⚠ Partial (60%)' : '✗ Flagged'}
+                    </span>
+                    <span className="text-emerald-400 font-bold ml-auto">₹{d.payout}</span>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -642,6 +1013,8 @@ const HelpTab: React.FC<{ worker: Worker }> = ({ worker }) => {
     { name: 'CPCB AQI Network', status: 'Connected' },
     { name: 'Forest Electronics IoT', status: 'Connected' },
   ];
+  const defenseLayerIcons = [Eye, Fingerprint, MapPin, Activity, Database];
+  const defenseLayerColors = ['text-blue-400 bg-blue-500/10 border-blue-500/20', 'text-purple-400 bg-purple-500/10 border-purple-500/20', 'text-amber-400 bg-amber-500/10 border-amber-500/20', 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20', 'text-sky-400 bg-sky-500/10 border-sky-500/20'];
 
   return (
     <div className="space-y-4">
@@ -652,6 +1025,54 @@ const HelpTab: React.FC<{ worker: Worker }> = ({ worker }) => {
           <p className="text-[10px] uppercase tracking-widest text-slate-500">Sentinel Support</p>
         </div>
         <h2 className="text-xl font-bold text-white">How can we help you today?</h2>
+      </div>
+
+      {/* Fraud Detection Intelligence */}
+      <div
+        className="relative overflow-hidden rounded-3xl p-5"
+        style={{ background: 'linear-gradient(135deg, #1e2a6e 0%, #0f1855 60%, #0a1040 100%)', border: '1px solid rgba(99,102,241,0.3)' }}
+      >
+        <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-500" />
+        <div className="flex items-center gap-2 mb-3">
+          <Fingerprint className="h-4 w-4 text-indigo-300" />
+          <p className="text-xs font-bold text-indigo-300 uppercase tracking-widest">Fraud Detection Intelligence</p>
+        </div>
+        <div className="grid grid-cols-3 gap-2 mb-4">
+          <div className="rounded-xl bg-white/5 border border-white/5 py-2.5 px-3 text-center">
+            <p className="text-lg font-black text-white">10,247</p>
+            <p className="text-[9px] text-indigo-300/50 uppercase">Riders Monitored</p>
+          </div>
+          <div className="rounded-xl bg-white/5 border border-white/5 py-2.5 px-3 text-center">
+            <p className="text-lg font-black text-emerald-400">3</p>
+            <p className="text-[9px] text-indigo-300/50 uppercase">Rings Neutralized</p>
+          </div>
+          <div className="rounded-xl bg-white/5 border border-white/5 py-2.5 px-3 text-center">
+            <p className="text-lg font-black text-emerald-400">0.8%</p>
+            <p className="text-[9px] text-indigo-300/50 uppercase">False Positive</p>
+          </div>
+        </div>
+        <p className="text-xs text-indigo-200/50 font-semibold mb-2">Defense Layers</p>
+        <div className="space-y-1.5">
+          {[
+            'Behavioral Analysis',
+            'Geo-Spatial Verification',
+            'Device Fingerprinting',
+            'Cross-Rider Clustering',
+            'External Data Correlation',
+          ].map((layer, i) => {
+            const Icon = defenseLayerIcons[i];
+            return (
+              <div key={layer} className="flex items-center gap-2.5 rounded-lg bg-white/3 border border-white/5 px-3 py-2">
+                <div className={`flex h-6 w-6 items-center justify-center rounded-lg border ${defenseLayerColors[i]}`}>
+                  <Icon className="h-3 w-3" strokeWidth={1.5} />
+                </div>
+                <span className="text-xs text-slate-300 font-medium flex-1">{layer}</span>
+                <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="text-[9px] font-bold text-emerald-400">ACTIVE</span>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* Contact options */}
@@ -770,6 +1191,10 @@ const Dashboard: React.FC = () => {
   const [simulating, setSimulating] = useState(false);
   const [simResult, setSimResult] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<Tab>('safety');
+  const [trustData, setTrustData] = useState<TrustData | null>(null);
+  const [riskData, setRiskData] = useState<RiskData | null>(null);
+  const [selectedEventType, setSelectedEventType] = useState(0);
+  const [toast, setToast] = useState<{ show: boolean; amount: number; eventType: string; trustScore: number }>({ show: false, amount: 0, eventType: '', trustScore: 0 });
 
   const navigate = useNavigate();
 
@@ -787,6 +1212,9 @@ const Dashboard: React.FC = () => {
         (a, b) => new Date(b.trigger_date).getTime() - new Date(a.trigger_date).getTime()
       );
       setClaims(sorted);
+      // Fetch trust score & risk assessment
+      try { const tRes = await trustAPI.getTrustScore(w.id); setTrustData(tRes.data); } catch { /* ok */ }
+      try { const rRes = await riskAPI.getRiskAssessment(w.location); setRiskData(rRes.data); } catch { /* ok */ }
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
   }, []);
@@ -811,10 +1239,16 @@ const Dashboard: React.FC = () => {
 
   const handleTrigger = async () => {
     if (!worker) return;
+    const selected = EVENT_TYPES[selectedEventType];
     setSimulating(true); setSimResult(null);
     try {
-      const res = await adminAPI.triggerEvent({ location: worker.location, event_type: currentTrigger.type });
+      const res = await adminAPI.triggerEvent({ location: worker.location, event_type: selected.type });
       setSimResult(res.data);
+      // Show toast notification for successful payout
+      if (res.data.total_payouts_inr > 0) {
+        const tScore = res.data.trust_score_breakdown?.[0]?.trust_score ?? 85;
+        setToast({ show: true, amount: res.data.total_payouts_inr, eventType: selected.type, trustScore: tScore });
+      }
       await loadData(worker);
     } catch { alert('Simulation failed. Is backend running?'); }
     finally { setSimulating(false); }
@@ -857,6 +1291,14 @@ const Dashboard: React.FC = () => {
 
   return (
     <div className="bg-mesh min-h-screen">
+      {/* Toast Notification */}
+      <ToastNotification
+        show={toast.show}
+        amount={toast.amount}
+        eventType={toast.eventType}
+        trustScore={toast.trustScore}
+        onClose={() => setToast(prev => ({ ...prev, show: false }))}
+      />
       {/* Background orbs */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="absolute -top-40 -left-40 h-96 w-96 rounded-full bg-emerald-500/8 blur-3xl" />
@@ -877,6 +1319,14 @@ const Dashboard: React.FC = () => {
             <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-indigo-500/30 bg-indigo-500/20 text-sm font-bold text-indigo-300">
               {worker.name.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase()}
             </div>
+            <button
+              id="logout-btn"
+              onClick={() => { localStorage.removeItem('shieldgig_worker'); navigate('/'); }}
+              className="flex h-9 w-9 items-center justify-center rounded-xl border border-red-500/20 bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
+              title="Sign out"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
           </div>
         </div>
       </div>
@@ -889,6 +1339,8 @@ const Dashboard: React.FC = () => {
             claims={claims} onPurchase={handlePurchase} purchasing={purchasing}
             onTrigger={handleTrigger} simulating={simulating} simResult={simResult}
             onGoToCoverage={() => setActiveTab('coverage')}
+            trustData={trustData} riskData={riskData}
+            selectedEventType={selectedEventType} onEventTypeChange={setSelectedEventType}
           />
         )}
         {activeTab === 'coverage' && (

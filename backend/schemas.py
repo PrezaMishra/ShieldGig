@@ -16,6 +16,7 @@ class WorkerOut(BaseModel):
     platform: str
     location: str
     daily_income: float
+    trust_score: float
     created_at: datetime
     class Config:
         from_attributes = True
