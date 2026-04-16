@@ -12,6 +12,7 @@ import { policyAPI, claimAPI, adminAPI, workerAPI, trustAPI, riskAPI } from '../
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Worker {
+
   id: number;
   name: string;
   phone: string;
@@ -56,7 +57,7 @@ interface RiskData {
   active_triggers: string[];
 }
 
-type Tab = 'safety' | 'coverage' | 'wallet' | 'help';
+type Tab = 'safety' | 'coverage' | 'wallet' | 'help' | 'admin';
 
 // ─── Event Type Options for Simulation ────────────────────────────────────────
 const EVENT_TYPES = [
@@ -200,6 +201,7 @@ const BottomNav: React.FC<{ active: Tab; onChange: (t: Tab) => void }> = ({ acti
     { id: 'coverage', label: 'Coverage',   icon: ShieldCheck },
     { id: 'wallet',   label: 'Wallet',     icon: Wallet },
     { id: 'help',     label: 'Help',       icon: HelpCircle },
+    { id: 'admin', label: 'Admin', icon: Database },
   ];
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50 flex justify-center">
@@ -267,6 +269,9 @@ const SafetyNetTab: React.FC<{
             {activePolicy ? 'Active: Shielded' : 'Unprotected'}
           </span>
         </div>
+        <p className="text-emerald-400 text-sm">
+            AI Trust Score: {trustData?.composite_score}
+        </p>
         <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-full ${
           activePolicy
             ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
@@ -843,7 +848,7 @@ const CoverageTab: React.FC<{
             </div>
             <div className="text-right">
               <p className="text-xs text-slate-500">{activePolicy ? 'Active Premium' : 'Weekly Premium'}</p>
-              <p className="text-xl font-black text-emerald-400">₹{premium}</p>
+              <p className="text-xl font-black text-emerald-400">₹{quote?.weekly_premium_inr}</p>
             </div>
           </div>
         )}
@@ -1186,7 +1191,7 @@ const Dashboard: React.FC = () => {
   const [quote, setQuote] = useState<Quote | null>(null);
   const [activePolicy, setActivePolicy] = useState<Policy | null>(null);
   const [claims, setClaims] = useState<Claim[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [purchasing, setPurchasing] = useState(false);
   const [simulating, setSimulating] = useState(false);
   const [simResult, setSimResult] = useState<any>(null);
@@ -1195,7 +1200,64 @@ const Dashboard: React.FC = () => {
   const [riskData, setRiskData] = useState<RiskData | null>(null);
   const [selectedEventType, setSelectedEventType] = useState(0);
   const [toast, setToast] = useState<{ show: boolean; amount: number; eventType: string; trustScore: number }>({ show: false, amount: 0, eventType: '', trustScore: 0 });
+  const [wallet, setWallet] = useState(0);
+  const [status, setStatus] = useState("");
+  
+useEffect(() => {
+    const dummyWorker = {
+      id: 1,
+      name: "Rider",
+      phone: "9999999999",
+      platform: "Swiggy",
+      location: "Bangalore",
+      daily_income: 1000
+    };
 
+    setWorker(dummyWorker as any);
+
+    setQuote({
+      weekly_premium_inr: 70,
+      max_daily_payout_inr: 500,
+      plan_name: "Basic",
+      rationale: "AI based"
+    });
+
+    setActivePolicy({
+      id: 1,
+      plan_name: "Basic",
+      start_date: "",
+      end_date: "",
+      premium_amount: 70,
+      coverage_daily: 500,
+      is_active: true
+    });
+
+    setClaims([]);
+
+    setTrustData({
+      composite_score: 80,
+      tier: "instant_payout",
+      tier_label: "Trusted",
+      tier_description: "High trust user",
+      breakdown: {
+        behavioral_consistency: 90,
+        device_authenticity: 85,
+        claim_accuracy: 88,
+        peer_comparison: 80
+      }
+    });
+
+    setRiskData({
+      location: "Bangalore",
+      risk_level: "high",
+      risk_score: 90,
+      factors: [],
+      active_triggers: ["Heavy Rain"]
+    });
+
+  }, []);
+  
+  
   const navigate = useNavigate();
 
   const loadData = useCallback(async (w: Worker) => {
@@ -1220,12 +1282,25 @@ const Dashboard: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const wStr = localStorage.getItem('shieldgig_worker');
-    if (!wStr) { navigate('/'); return; }
-    const w: Worker = JSON.parse(wStr);
-    setWorker(w);
-    loadData(w);
-  }, [navigate, loadData]);
+  // backend disabled for phase 3 demo
+}, []);
+  
+  useEffect(() => {
+  if (!riskData) return;
+
+  let dynamicPremium = 70;
+
+  if (riskData.risk_level === "High") dynamicPremium = 90;
+  else if (riskData.risk_level === "Low") dynamicPremium = 60;
+
+  setQuote({
+    weekly_premium_inr: dynamicPremium,
+    max_daily_payout_inr: 500,
+    plan_name: "Dynamic Plan",
+    rationale: "AI-based dynamic pricing"
+  });
+
+}, [riskData]);
 
   const handlePurchase = async () => {
     if (!worker || !quote) return;
@@ -1237,55 +1312,120 @@ const Dashboard: React.FC = () => {
     finally { setPurchasing(false); }
   };
 
-  const handleTrigger = async () => {
-    if (!worker) return;
-    const selected = EVENT_TYPES[selectedEventType];
-    setSimulating(true); setSimResult(null);
-    try {
-      const res = await adminAPI.triggerEvent({ location: worker.location, event_type: selected.type });
-      setSimResult(res.data);
-      // Show toast notification for successful payout
-      if (res.data.total_payouts_inr > 0) {
-        const tScore = res.data.trust_score_breakdown?.[0]?.trust_score ?? 85;
-        setToast({ show: true, amount: res.data.total_payouts_inr, eventType: selected.type, trustScore: tScore });
-      }
-      await loadData(worker);
-    } catch { alert('Simulation failed. Is backend running?'); }
-    finally { setSimulating(false); }
-  };
-
   // ── Income update: persists to backend, updates localStorage & re-fetches quote ──
-  const handleIncomeUpdate = async (newIncome: number) => {
-    if (!worker) return;
-    try {
-      const res = await workerAPI.updateIncome(worker.id, newIncome);
-      const updatedWorker: Worker = res.data;
-      setWorker(updatedWorker);
-      localStorage.setItem('shieldgig_worker', JSON.stringify(updatedWorker));
-      // Re-fetch quote with new income — modifies premium & coverage amounts live
-      await loadData(updatedWorker);
-    } catch (err) {
-      console.error(err);
-      throw err;
+  const handleTrigger = async () => {
+   console.log("Trigger fired");
+
+   if (!worker) return;
+    
+   if ((trustData?.composite_score || 0) < 50) {
+      setStatus("Fraud ❌");
+
+      alert("Low trust score — claim rejected");
+
+      return;
     }
+    //Reject Case 
+   if (worker?.location !== "Bangalore") {
+  setStatus("Fraud ❌");
+
+  const newClaim = {
+    id: Date.now(),
+    event: selectedEventType === 0 ? "Heatwave" : "Rain",
+    amount: 0,
+    status: "Rejected",
+    date: new Date().toLocaleString()
   };
 
-  if (loading) {
-    return (
-      <div className="bg-mesh flex min-h-screen flex-col items-center justify-center gap-4">
-        <div className="relative">
-          <div className="h-16 w-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-            <Shield className="h-8 w-8 text-emerald-400" strokeWidth={1.5} />
-          </div>
-          <div className="absolute inset-0 rounded-2xl border-2 border-emerald-500/30 animate-ping" />
-        </div>
-        <div className="text-center">
-          <p className="text-slate-300 font-semibold">Loading your Shield...</p>
-          <p className="text-slate-600 text-sm mt-1">Fetching AI risk assessment</p>
-        </div>
-      </div>
-    );
+  setClaims(prev => [newClaim as any, ...(prev || [])]);
+
+  alert("Claim rejected due to location mismatch");
+
+  return;
+}
+
+// ✅ APPROVED CASE
+setStatus("Approved ✅");
+
+    const payout = selectedEventType === 0 ? 450 : 300;
+    
+    const newClaim = {
+      id: Date.now(),
+      event_type: selectedEventType === 0 ? "Heatwave" : "Rain",
+      payout_amount: payout,
+      status: "Approved",
+      trigger_date: new Date().toISOString()
+    };
+
+    setClaims(prev => [newClaim as any, ...(prev || [])]);
+
+    const options = {
+      key: "YOUR_TEST_KEY_ID", // paste your Razorpay key
+      amount: payout * 100, // in paise
+      currency: "INR",
+      name: "ShieldGig",
+      description: "Instant Payout",
+      handler: function (response: any) {
+
+    // ✅ AFTER PAYMENT SUCCESS
+      setWallet(prev => prev + payout);
+
+      setToast({
+        show: true,
+        amount: payout,
+        eventType: selectedEventType === 0 ? "Heatwave" : "Rain",
+        trustScore: trustData?.composite_score || 80
+    });
+
+    alert("Payment Successful via Razorpay!");
+  },
+  prefill: {
+    name: worker.name,
+    contact: worker.phone
+  },
+  theme: {
+    color: "#22c55e"
   }
+};
+
+alert("Opening UPI Payment...");
+
+setTimeout(() => {
+  alert("Payment Successful ✅");
+
+  setWallet(prev => prev + payout);
+
+  setToast({
+    show: true,
+    amount: payout,
+    eventType: selectedEventType === 0 ? "Heatwave" : "Rain",
+    trustScore: trustData?.composite_score || 80
+  });
+
+}, 1500);
+
+};
+  
+  const handleIncomeUpdate = async () => {
+    console.log("Income updated");
+};
+
+  //if (loading) {
+    //return (
+      //<div className="bg-mesh flex min-h-screen flex-col items-center justify-center gap-4">
+        //<div className="relative">
+          //<div className="h-16 w-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
+            //<Shield className="h-8 w-8 text-emerald-400" strokeWidth={1.5} />
+          //</div>
+          //<div className="absolute inset-0 rounded-2xl border-2 border-emerald-500/30 animate-ping" />
+        //</div>
+        //<div className="text-center">
+          //<p className="text-slate-300 font-semibold">Loading your Shield...</p>
+          //<p className="text-slate-600 text-sm mt-1">Fetching AI risk assessment</p>
+        //</div>
+      //</div>
+    //);
+  //}
 
   if (!worker) return null;
 
@@ -1348,6 +1488,34 @@ const Dashboard: React.FC = () => {
         )}
         {activeTab === 'wallet'   && <WalletTab claims={claims} worker={worker} />}
         {activeTab === 'help'     && <HelpTab worker={worker} />}
+
+        {activeTab === 'admin' && (
+          <div className="p-4 space-y-4">
+           <h2 className="text-white text-lg font-bold">Admin Dashboard</h2>
+
+           <p className="text-slate-300">
+             Total Claims: {claims.length}
+           </p>
+
+           <p className="text-slate-300">
+             Approved Claims: {claims.filter(c => c.status === "Approved").length}
+           </p>
+
+           <p className="text-slate-300">
+             Rejected Claims: {claims.filter(c => c.status === "Rejected").length}
+           </p>
+
+           <p className="text-slate-300">
+              Total Payout: ₹{claims
+               .filter(c => c.status === "Approved")
+               .reduce((sum, c) => sum + (c.payout_amount || 0), 0)}
+            </p>
+
+            <p className="text-emerald-400">
+              Next Week Prediction: High Rainfall → More Claims 📈
+           </p>
+         </div>
+)}
       </div>
 
       {/* ── Bottom nav ── */}
