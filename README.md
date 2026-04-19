@@ -1,73 +1,82 @@
-# React + TypeScript + Vite
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+---
 
-Currently, two official plugins are available:
+## AI Models
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+### 1. Income Prediction Model
 
-## React Compiler
+**Purpose:** Estimate expected daily income
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+**Inputs:**
+- Historical earnings  
+- Time of day  
+- Delivery zone  
+- Weather conditions  
+- Number of deliveries  
 
-## Expanding the ESLint configuration
+**Models Used:**
+- Linear Regression  
+- Random Forest  
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+**Output:**
+- Predicted daily income  
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+---
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+### 2. Risk Prediction Model
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+**Purpose:** Determine disruption risk for zones
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+**Inputs:**
+- Rainfall history  
+- AQI levels  
+- Flood-prone zones  
+- Traffic data  
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+**Output:**
+- Risk score (used for premium calculation)
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+
+---
+
+## Innovation
+
+- Zero-touch insurance claims  
+- AI-driven income estimation  
+- Parametric trigger-based payouts  
+- Fraud-resistant system design  
+- Tailored specifically for gig workers  
+
+---
+
+## Impact
+
+ShieldGig aims to:
+- Provide financial stability to delivery riders  
+- Reduce income uncertainty  
+- Enable trust in gig-based work ecosystems  
+- Scale to millions of gig workers across India  
+
+---
+
+## Future Improvements
+
+- Real-time model updates using live data  
+- Integration with delivery platforms (Swiggy/Zomato APIs)  
+- Mobile app with rider dashboard  
+- Advanced fraud detection using behavioral analytics  
+- Expansion to other gig sectors  
+
+---
+
+## Hackathon Context
+
+Developed as part of **Guidewire DEVTrails University Hackathon 2026 (in partnership with EY)**.
+
+The project progressed till the **SOAR phase**, focusing on scalability, system design, and real-world feasibility.
+
+---
+
+## License
+
+This project is for educational and hackathon purposes.
